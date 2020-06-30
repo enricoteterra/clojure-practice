@@ -14,7 +14,10 @@
 
 ;;; --------------------------- state reducer --------------------------------
 
-(defn apply-event [tasks event]
+(defn apply-event
+  "Reduces a valid application state from a vector of events. The events
+  must be sorted in order of when the events were received."
+  [tasks event]
   (if (s/invalid? (s/conform :todo/task-event event))
     tasks
     (case (:event/name event)
