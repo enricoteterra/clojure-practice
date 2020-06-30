@@ -1,6 +1,37 @@
 (ns api.core-test
-  (:require [clojure.test :refer :all]
-            [api.core :refer [in-memory-event-store apply-event]]))
+  (:require [api.core :refer :all]
+            [clojure.test :refer :all]
+            [clojure.spec.alpha :as s]
+            [clojure.spec.gen.alpha :refer [generate]]
+            [muuntaja.core :as m]))
+
+(defn some-task-event [& [overwrites]]
+  (into (generate (s/gen :todo/task-event)) overwrites))
+
+(deftest apply-event-test
+  (testing "applying unknown or invalid events does not affect state"
+    (is (empty? (apply-event [] {:event/name "some event"})))
+    (is (empty? (apply-event [] {:event/name "task-added"
+                                 :prop       "unknown prop"}))))
+
+  (testing "`task-added` event is applied"
+    (is (seq (apply-event [] (some-task-event {:event/name "task-added"})))))
+
+  (testing "`task-completed` event is applied"
+    (is (->> (some-task-event {:event/name "task-completed"})
+             (reduce apply-event [])
+             (empty?)))
+
+    (is (->> [(some-task-event {:event/name "task-added" :task/uri "1"})
+              (some-task-event {:event/name "task-completed" :task/uri "1"})]
+             (reduce apply-event [])
+             (empty?)))
+
+    (is (->> [(some-task-event {:event/name "task-added"})
+              (some-task-event {:event/name "task-completed"})]
+             (reduce apply-event [])
+             (count)
+             (= 1)))))
 
 (deftest in-memory-event-store-test
   (testing "it should keep a record of events"
@@ -12,38 +43,72 @@
       (is (events) [{:event/name "first event"}
                     {:event/name "another event"}])))
 
-  (testing "it should not share state"
+  (testing "it should not store invalid events"
+    (let [{:keys [send, events]} (in-memory-event-store)]
+      (send {:some-prop "first event"})
+      (is (= 0 (count (events))))))
+
+  (testing "it should not share state with other stores"
     (is (empty? ((:events (in-memory-event-store)))))))
 
-(deftest apply-event-test
-  (testing "apply unknown or invalid events does not affect state"
-    (is (empty? (apply-event [] {:event/name "some event"})))
-    (is (empty? (apply-event [] {:event/name "task-added"
-                                 :some-prop "some task"}))))
+(defn parse-body [request] (m/decode "application/json" (:body request)))
+(deftest app-routes-test
+  (testing "it should respond to GET `/tasks`"
+    (let [response ((app (in-memory-event-store))
+                    {:request-method :get :uri "/tasks"})]
+      (is (= 200 (:status response)))
+      (is (= [] (parse-body response)))))
 
-  (testing "`task-added` event is applied"
-    (is [{:task/title "some task"}]
-        (apply-event [] {:event/name "task-added"
-                         :task/title "some task"})))
+  (testing "it should respond to POST `/tasks/added`"
+    (is (= 400 (-> {:request-method :post :uri "/tasks/added"}
+                   ((app (in-memory-event-store)))
+                   (:status))))
 
-  (testing "`task-completed` event is applied"
-    (is (empty? (-> [] (apply-event {:event/name "task-completed"
-                                     :task/uri "todo/task/1"
-                                     :task/title "a task"}))))
+    (is (= 201 (-> {:request-method :post
+                    :uri            "/tasks/added"
+                    :body-params    {:uri "uri-1" :title "new task"}}
+                   ((app (in-memory-event-store)))
+                   (:status)))))
 
-    (is (empty? (-> []
-                    (apply-event {:event/name "task-added"
-                                  :task/uri "todo/task/1"
-                                  :task/title "a task"})
-                    (apply-event {:event/name "task-completed"
-                                  :task/uri "todo/task/1"
-                                  :task/title "a task"}))))
+  (testing "it should respond to POST `/tasks/completed`"
+    (is (= 400 (-> {:request-method :post, :uri "/tasks/completed"}
+                   ((app (in-memory-event-store)))
+                   (:status))))
 
-    (is (= 1 (count (-> []
-                        (apply-event {:event/name "task-added"
-                                      :task/uri "todo/task/1"
-                                      :task/title "a task"})
-                        (apply-event {:event/name "task-completed"
-                                      :task/uri "todo/task/2"
-                                      :task/title "a task"})))))))
+    (is (= 201 (-> {:request-method :post
+                    :uri            "/tasks/completed"
+                    :body-params    {:uri "uri-1" :title "new task"}}
+                   ((app (in-memory-event-store)))
+                   (:status)))))
 
+  (testing "it should return 404 when request uri unknown"
+    (is (= 404 (-> {:request-method :get :uri "some-uri"}
+                   ((app (in-memory-event-store)))
+                   (:status)))))
+
+  (testing "it should return 405 when request method is not allowed"
+    (is (= 405 (-> {:request-method :post :uri "/tasks"}
+                   ((app (in-memory-event-store)))
+                   (:status))))))
+
+(deftest app-behaviour-test
+  (testing "it should add tasks"
+    (let [app (app (in-memory-event-store))]
+      (app {:request-method :post
+            :uri            "/tasks/added"
+            :body-params    {:uri "uri-1" :title "new task"}})
+      (app {:request-method :post
+            :uri            "/tasks/added"
+            :body-params    {:uri "uri-2" :title "second task"}})
+      (is (= 2 (count (parse-body (app {:request-method :get :uri "/tasks"})))))))
+
+  (testing "it should complete tasks"
+    (let [app (app (in-memory-event-store))]
+      (app {:request-method :post
+            :uri            "/tasks/added"
+            :body-params    {:uri "uri-1" :title "new task"}})
+      (is (= 1 (count (parse-body (app {:request-method :get :uri "/tasks"})))))
+      (app {:request-method :post
+            :uri            "/tasks/completed"
+            :body-params    {:uri "uri-1" :title "new task"}})
+      (is (= 0 (count (parse-body (app {:request-method :get :uri "/tasks"}))))))))
