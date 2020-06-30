@@ -17,6 +17,20 @@
   (testing "`task-added` event is applied"
     (is (seq (apply-event [] (some-task-event {:event/name "task-added"})))))
 
+  (testing "many `task-added` events with same uri are applied"
+    (let [tasks (->> [(some-task-event
+                        {:event/name "task-added"
+                         :task/title "first event" :task/uri "uri-1"})
+                      (some-task-event
+                        {:event/name "task-added"
+                         :task/title "second event" :task/uri "uri-1"})
+                      (some-task-event
+                        {:event/name "task-added"
+                         :task/title "last event" :task/uri "uri-1"})]
+                     (reduce apply-event []))]
+      (is (= 1 (count tasks)))
+      (is (= "last event" (:task/title (first tasks))))))
+
   (testing "`task-completed` event is applied"
     (is (->> (some-task-event {:event/name "task-completed"})
              (reduce apply-event [])

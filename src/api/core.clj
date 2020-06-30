@@ -16,9 +16,11 @@
   (if (s/invalid? (s/conform :todo/task-event event))
     tasks
     (case (:event/name event)
-      "task-added" (conj tasks (select-keys event [:task/uri :task/title]))
-      "task-completed" (remove #(= (:task/uri %) (:task/uri event)) tasks)
-      tasks)))
+      "task-added"
+      (->> (select-keys event [:task/uri :task/title])
+           (conj (remove #(= (:task/uri event) (:task/uri %)) tasks)))
+      "task-completed"
+      (remove #(= (:task/uri %) (:task/uri event)) tasks) tasks)))
 
 (defn task-event-handler [event-name send]
   (fn [request]
