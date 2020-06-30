@@ -1,17 +1,17 @@
 (ns api.core
   (:require [clojure.spec.alpha :as s]
-            [reitit.ring :as ring]
+            [reitit.ring :as r]
             [reitit.ring.coercion :as rrc]
             [reitit.coercion.spec]
             [muuntaja.middleware :as mw]
-            [ring.adapter.jetty :as jetty])
+            [ring.adapter.jetty :as j])
   (:gen-class))
 
-(s/def :task/uri (s/and string? seq))
-(s/def :task/title (s/and string? seq))
+(s/def :task/uri (s/and string? not-empty))
+(s/def :task/title (s/and string? not-empty))
 (s/def ::task (s/keys :req [:task/uri :task/title]))
 
-(s/def :event/name (s/and string? seq))
+(s/def :event/name (s/and string? not-empty))
 (s/def ::event (s/keys :req [:event/name]))
 (s/def :app/task-event (s/merge ::event ::task))
 
@@ -37,11 +37,11 @@
 
 (defn task-event-handler
   "Sends the received event to the event-store and responds to the request."
-  [event-name send]
+  [event-name send-to-store]
   (fn [request]
-    (send {:event/name event-name
-           :task/uri   (get-in request [:body-params :uri])
-           :task/title (get-in request [:body-params :title])})
+    (send-to-store {:event/name event-name
+                    :task/uri   (get-in request [:body-params :uri])
+                    :task/title (get-in request [:body-params :title])})
     {:status 201}))
 
 (defn app
@@ -53,8 +53,8 @@
    - an :events function. It responds with the list of events in the store."
   [event-store]
   (let [{send-to-store :send, events :events} event-store]
-    (ring/ring-handler
-      (ring/router
+    (r/ring-handler
+      (r/router
         [["/tasks"
           {:get (fn [_] {:status 200 :body (reduce apply-event [] (events))})}]
          ["/tasks/added"
@@ -69,7 +69,7 @@
                        rrc/coerce-exceptions-middleware
                        rrc/coerce-request-middleware
                        rrc/coerce-response-middleware]}})
-      (ring/create-default-handler))))
+      (r/create-default-handler))))
 
 (defn in-memory-event-store []
   (let [events (atom [])]
@@ -78,5 +78,4 @@
                  (swap! events conj event)))
      :events (fn [] @events)}))
 
-(defn -main [& args]
-  (jetty/run-jetty (app (in-memory-event-store)) {:port 3000}))
+(defn -main [& args] (j/run-jetty (app (in-memory-event-store)) {:port 3000}))
