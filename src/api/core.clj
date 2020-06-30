@@ -21,14 +21,17 @@
   "Reduces a valid application state from a vector of task events. The
   events must be sorted in order of when the events were received."
   [tasks event]
-  (if (s/invalid? (s/conform :app/task-event event))
-    tasks
+  (if (s/valid? :app/task-event event)
     (case (:event/name event)
       "task-added"
       (->> (select-keys event [:task/uri :task/title])
            (conj (remove #(= (:task/uri event) (:task/uri %)) tasks)))
       "task-completed"
-      (remove #(= (:task/uri %) (:task/uri event)) tasks) tasks)))
+      (remove #(= (:task/uri %) (:task/uri event)) tasks) tasks)
+
+    ;;; else
+    tasks
+    ))
 
 ;;; --------------------------- HTTP server ----------------------------------
 
