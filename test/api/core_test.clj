@@ -66,7 +66,7 @@
     (is (empty? ((:events (in-memory-event-store)))))))
 
 (defn parse-body [request] (m/decode "application/json" (:body request)))
-(deftest app-routes-test
+(deftest http-routes-test
   (testing "it should respond to GET `/tasks`"
     (let [response ((app (in-memory-event-store))
                     {:request-method :get :uri "/tasks"})]
@@ -105,7 +105,7 @@
                    ((app (in-memory-event-store)))
                    (:status))))))
 
-(deftest app-behaviour-test
+(deftest app-features-test
   (testing "it should add tasks"
     (let [app (app (in-memory-event-store))]
       (app {:request-method :post

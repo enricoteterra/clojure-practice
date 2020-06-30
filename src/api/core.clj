@@ -12,6 +12,8 @@
 (s/def :task/title (s/and string? seq))
 (s/def :todo/task-event (s/keys :req [:event/name :task/uri :task/title]))
 
+;;; --------------------------- state reducer --------------------------------
+
 (defn apply-event [tasks event]
   (if (s/invalid? (s/conform :todo/task-event event))
     tasks
@@ -22,14 +24,25 @@
       "task-completed"
       (remove #(= (:task/uri %) (:task/uri event)) tasks) tasks)))
 
-(defn task-event-handler [event-name send]
+;;; --------------------------- HTTP server ----------------------------------
+
+(defn task-event-handler
+  "Sends the received event to the event-store and responds to the request."
+  [event-name send]
   (fn [request]
     (send {:event/name event-name
            :task/uri   (get-in request [:body-params :uri])
            :task/title (get-in request [:body-params :title])})
     {:status 201}))
 
-(defn app [event-store]
+(defn app
+  "Listens to HTTP requests and routes them to the correct handlers.
+
+  `event-store` is a map of:
+   - a :send function. It receives an event (map with at least :event/name
+   and any other keywords related to the event).
+   - an :events function. It responds with the list of events in the store."
+  [event-store]
   (let [{send-to-store :send, events :events} event-store]
     (ring/ring-handler
       (ring/router
