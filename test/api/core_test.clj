@@ -7,12 +7,23 @@
 
 (defn some-task-event [& [overwrites]]
   (into (generate (s/gen :app/task-event)) overwrites))
+(defn some-system-error [& [overwrites]]
+  (into (generate (s/gen :app/system-error)) overwrites))
 
 (deftest apply-event-test
-  (testing "applying unknown or invalid events does not affect state"
-    (is (empty? (apply-event [] {:event/name "some event"})))
-    (is (empty? (apply-event [] {:event/name "task-added"
-                                 :prop       "unknown prop"}))))
+  (testing "applying unknown event returns an error"
+    (let [event {:event/name "some event"}]
+      (is (= (some-system-error {:error/reason  "could not apply event"
+                                 :error/fault   "event type unknown"
+                                 :error/details event})
+             (apply-event [] event)))))
+
+  ;(testing "applying invalid events returns an error"
+  ;  (let [event {:event/name "task-added" :prop "unknown prop"}]
+  ;    (is (= (some-system-error {:error/reason  "could not apply event"
+  ;                               :error/fault   "event schema invalid"
+  ;                               :error/details event})
+  ;           (apply-event [] event)))))
 
   (testing "`task-added` event is applied"
     (is (seq (apply-event [] (some-task-event {:event/name "task-added"})))))
@@ -32,20 +43,28 @@
       (is (= "last event" (:task/title (first tasks))))))
 
   (testing "`task-completed` event is applied"
-    (is (->> (some-task-event {:event/name "task-completed"})
-             (reduce apply-event [])
-             (empty?)))
+    (is (empty? (->> (some-task-event {:event/name "task-completed"})
+                     (apply-event []))))
 
-    (is (->> [(some-task-event {:event/name "task-added" :task/uri "1"})
-              (some-task-event {:event/name "task-completed" :task/uri "1"})]
-             (reduce apply-event [])
-             (empty?)))
+    (is (empty? (->> [(some-task-event {:event/name "task-added"
+                                        :task/uri   "1"})
+                      (some-task-event {:event/name "task-completed"
+                                        :task/uri   "1"})]
+                     (reduce apply-event []))))
 
-    (is (->> [(some-task-event {:event/name "task-added"})
-              (some-task-event {:event/name "task-completed"})]
-             (reduce apply-event [])
-             (count)
-             (= 1)))))
+    (is (= 1 (->> [(some-task-event {:event/name "task-added"
+                                     :task/uri   "1"})
+                   (some-task-event {:event/name "task-completed"
+                                     :task/uri   "2"})]
+                  (reduce apply-event [])
+                  (count))))
+
+    (is (= 0 (->> [(some-task-event {:event/name "task-added"
+                                     :task/uri   "1"})
+                   (some-task-event {:event/name "task-completed"
+                                     :task/uri   "1"})]
+                  (reduce apply-event [])
+                  (count))))))
 
 (deftest in-memory-event-store-test
   (testing "it should keep a record of events"
