@@ -6,7 +6,7 @@
             [muuntaja.core :as m]))
 
 (defn some-task-event [& [overwrites]]
-  (into (generate (s/gen :todo/task-event)) overwrites))
+  (into (generate (s/gen :app/task-event)) overwrites))
 
 (deftest apply-event-test
   (testing "applying unknown or invalid events does not affect state"

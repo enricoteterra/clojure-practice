@@ -7,18 +7,21 @@
             [ring.adapter.jetty :as jetty])
   (:gen-class))
 
-(s/def :event/name (s/and string? seq))
 (s/def :task/uri (s/and string? seq))
 (s/def :task/title (s/and string? seq))
-(s/def :todo/task-event (s/keys :req [:event/name :task/uri :task/title]))
+(s/def ::task (s/keys :req [:task/uri :task/title]))
+
+(s/def :event/name (s/and string? seq))
+(s/def ::event (s/keys :req [:event/name]))
+(s/def :app/task-event (s/merge ::event ::task))
 
 ;;; --------------------------- state reducer --------------------------------
 
 (defn apply-event
-  "Reduces a valid application state from a vector of events. The events
-  must be sorted in order of when the events were received."
+  "Reduces a valid application state from a vector of task events. The
+  events must be sorted in order of when the events were received."
   [tasks event]
-  (if (s/invalid? (s/conform :todo/task-event event))
+  (if (s/invalid? (s/conform :app/task-event event))
     tasks
     (case (:event/name event)
       "task-added"
@@ -68,7 +71,7 @@
 (defn in-memory-event-store []
   (let [events (atom [])]
     {:send   (fn [event]
-               (when (s/valid? (s/keys :req [:event/name]) event)
+               (when (s/valid? ::event event)
                  (swap! events conj event)))
      :events (fn [] @events)}))
 
