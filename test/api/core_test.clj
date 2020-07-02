@@ -2,8 +2,7 @@
   (:require [api.core :refer :all]
             [clojure.test :refer :all]
             [clojure.spec.alpha :as s]
-            [clojure.spec.gen.alpha :refer [generate]]
-            [muuntaja.core :as m]))
+            [clojure.spec.gen.alpha :refer [generate]]))
 
 (defn some-task-event [& [overwrites]]
   (into (generate (s/gen :app/task-event)) overwrites))
@@ -71,70 +70,3 @@
 
   (testing "it should not share state with other stores"
     (is (empty? ((:events (in-memory-event-store)))))))
-
-(defn parse-body [request] (m/decode "application/json" (:body request)))
-(deftest http-routes-test
-  (testing "it should respond to GET `/tasks`"
-    (let [response ((app (in-memory-event-store))
-                    {:request-method :get :uri "/tasks"})]
-      (is (= 200 (:status response)))
-      (is (= [] (parse-body response))))
-
-    (let [bad-event-store (in-memory-event-store)]
-      ((:send bad-event-store) {:event/name "bad event"})
-      (is (= 500 (:status ((app bad-event-store)
-                           {:request-method :get :uri "/tasks"}))))))
-
-  (testing "it should respond to POST `/tasks/added`"
-    (is (= 400 (-> {:request-method :post :uri "/tasks/added"}
-                   ((app (in-memory-event-store)))
-                   (:status))))
-
-    (is (= 201 (-> {:request-method :post
-                    :uri            "/tasks/added"
-                    :body-params    {:uri "uri-1" :title "new task"}}
-                   ((app (in-memory-event-store)))
-                   (:status)))))
-
-  (testing "it should respond to POST `/tasks/completed`"
-    (is (= 400 (-> {:request-method :post, :uri "/tasks/completed"}
-                   ((app (in-memory-event-store)))
-                   (:status))))
-
-    (is (= 201 (-> {:request-method :post
-                    :uri            "/tasks/completed"
-                    :body-params    {:uri "uri-1" :title "new task"}}
-                   ((app (in-memory-event-store)))
-                   (:status)))))
-
-  (testing "it should return 404 when request uri unknown"
-    (is (= 404 (-> {:request-method :get :uri "some-uri"}
-                   ((app (in-memory-event-store)))
-                   (:status)))))
-
-  (testing "it should return 405 when request method is not allowed"
-    (is (= 405 (-> {:request-method :post :uri "/tasks"}
-                   ((app (in-memory-event-store)))
-                   (:status))))))
-
-(deftest app-features-test
-  (testing "it should add tasks"
-    (let [app (app (in-memory-event-store))]
-      (app {:request-method :post
-            :uri            "/tasks/added"
-            :body-params    {:uri "uri-1" :title "new task"}})
-      (app {:request-method :post
-            :uri            "/tasks/added"
-            :body-params    {:uri "uri-2" :title "second task"}})
-      (is (= 2 (count (parse-body (app {:request-method :get :uri "/tasks"})))))))
-
-  (testing "it should complete tasks"
-    (let [app (app (in-memory-event-store))]
-      (app {:request-method :post
-            :uri            "/tasks/added"
-            :body-params    {:uri "uri-1" :title "new task"}})
-      (is (= 1 (count (parse-body (app {:request-method :get :uri "/tasks"})))))
-      (app {:request-method :post
-            :uri            "/tasks/completed"
-            :body-params    {:uri "uri-1" :title "new task"}})
-      (is (= 0 (count (parse-body (app {:request-method :get :uri "/tasks"}))))))))
