@@ -47,7 +47,9 @@
       (when (s/valid? :app/task-event event) (send-to-store event)))
     {:status 201}))
 
-(defn snapshot-from [events-from-store]
+(defn tasks-snapshot-from [events-from-store]
+  "Returns a snapshot of tasks from the history of task events. Only responds
+   when the snapshot was created successfully, otherwise returns an error."
   (fn [_]
     (try
       {:status 200 :body (reduce apply-event [] (events-from-store))}
@@ -70,7 +72,7 @@
          ["/tasks/completed"
           {:post       (handle-post-event "task-completed" send-to-store)
            :parameters {:body {:uri :task/uri :title :task/title}}}]
-         ["/tasks" {:get (snapshot-from stored-events)}]]
+         ["/tasks" {:get (tasks-snapshot-from stored-events)}]]
         {:data
          {:coercion   reitit.coercion.spec/coercion
           :middleware [mw/wrap-format
