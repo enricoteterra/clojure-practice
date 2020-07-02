@@ -7,23 +7,11 @@
 
 (defn some-task-event [& [overwrites]]
   (into (generate (s/gen :app/task-event)) overwrites))
-(defn some-system-error [& [overwrites]]
-  (into (generate (s/gen :app/system-error)) overwrites))
 
 (deftest apply-event-test
   (testing "applying unknown event returns an error"
     (let [event {:event/name "some event"}]
-      (is (= (some-system-error {:error/reason  "could not apply event"
-                                 :error/fault   "event type unknown"
-                                 :error/details event})
-             (apply-event [] event)))))
-
-  ;(testing "applying invalid events returns an error"
-  ;  (let [event {:event/name "task-added" :prop "unknown prop"}]
-  ;    (is (= (some-system-error {:error/reason  "could not apply event"
-  ;                               :error/fault   "event schema invalid"
-  ;                               :error/details event})
-  ;           (apply-event [] event)))))
+      (is (thrown? clojure.lang.ExceptionInfo (apply-event [] event)))))
 
   (testing "`task-added` event is applied"
     (is (seq (apply-event [] (some-task-event {:event/name "task-added"})))))
@@ -90,7 +78,12 @@
     (let [response ((app (in-memory-event-store))
                     {:request-method :get :uri "/tasks"})]
       (is (= 200 (:status response)))
-      (is (= [] (parse-body response)))))
+      (is (= [] (parse-body response))))
+
+    (let [bad-event-store (in-memory-event-store)]
+      ((:send bad-event-store) {:event/name "bad event"})
+      (is (= 500 (:status ((app bad-event-store)
+                           {:request-method :get :uri "/tasks"}))))))
 
   (testing "it should respond to POST `/tasks/added`"
     (is (= 400 (-> {:request-method :post :uri "/tasks/added"}

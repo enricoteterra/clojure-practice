@@ -33,13 +33,11 @@
     "task-completed"
     (remove #(= (:task/uri %) (:task/uri event)) tasks)
     ;;; else
-    {:error/reason  "could not apply event"
-     :error/fault   "event type unknown"
-     :error/details event}))
+    (throw (ex-info "cannot apply event" event))))
 
 ;;; --------------------------- HTTP server ----------------------------------
 
-(defn task-event-handler
+(defn handle-post-event
   "Sends the received event to the event-store and responds to the request."
   [event-name send-to-store]
   (fn [request]
@@ -47,8 +45,13 @@
                  :task/uri   (get-in request [:body-params :uri])
                  :task/title (get-in request [:body-params :title])}]
       (when (s/valid? :app/task-event event) (send-to-store event)))
-    ;;; TODO - handle error when task-event schema invalid
     {:status 201}))
+
+(defn snapshot-from [events-from-store]
+  (fn [_]
+    (try
+      {:status 200 :body (reduce apply-event [] (events-from-store))}
+      (catch clojure.lang.ExceptionInfo _ {:status 500}))))
 
 (defn app
   "Listens to HTTP requests and routes them to the correct handlers.
@@ -58,19 +61,16 @@
    and any other keywords related to the event).
    - an :events function. It responds with the list of events in the store."
   [event-store]
-  (let [{send-to-store :send, events :events} event-store]
+  (let [{send-to-store :send stored-events :events} event-store]
     (r/ring-handler
       (r/router
-        [["/tasks"
-          {:get (fn [_] {:status 200
-                         :body   (reduce apply-event [] (events))})}]
-         ;;; TODO - handle errors after apply-event
-         ["/tasks/added"
-          {:post       (task-event-handler "task-added" send-to-store)
+        [["/tasks/added"
+          {:post       (handle-post-event "task-added" send-to-store)
            :parameters {:body {:uri :task/uri :title :task/title}}}]
          ["/tasks/completed"
-          {:post       (task-event-handler "task-completed" send-to-store)
-           :parameters {:body {:uri :task/uri :title :task/title}}}]]
+          {:post       (handle-post-event "task-completed" send-to-store)
+           :parameters {:body {:uri :task/uri :title :task/title}}}]
+         ["/tasks" {:get (snapshot-from stored-events)}]]
         {:data
          {:coercion   reitit.coercion.spec/coercion
           :middleware [mw/wrap-format
@@ -83,7 +83,6 @@
   (let [events (atom [])]
     {:send   (fn [event]
                (when (s/valid? ::event event)
-                 ;;; TODO - handle error when event is invalid
                  (swap! events conj event)))
      :events (fn [] @events)}))
 
