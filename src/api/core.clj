@@ -37,7 +37,7 @@
 
 ;;; --------------------------- HTTP server ----------------------------------
 
-(defn handle-post-event
+(defn handle-task-event
   "Sends the received event to the event-store and responds to the request."
   [event-name send-to-store]
   (fn [request]
@@ -67,10 +67,10 @@
     (r/ring-handler
       (r/router
         [["/tasks/added"
-          {:post       (handle-post-event "task-added" send-to-store)
+          {:post       (handle-task-event "task-added" send-to-store)
            :parameters {:body {:uri :task/uri :title :task/title}}}]
          ["/tasks/completed"
-          {:post       (handle-post-event "task-completed" send-to-store)
+          {:post       (handle-task-event "task-completed" send-to-store)
            :parameters {:body {:uri :task/uri :title :task/title}}}]
          ["/tasks" {:get (tasks-snapshot-from stored-events)}]]
         {:data
