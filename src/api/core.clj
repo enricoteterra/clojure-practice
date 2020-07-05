@@ -4,6 +4,7 @@
             [reitit.ring.coercion :as rrc]
             [reitit.coercion.spec]
             [muuntaja.middleware :as mw]
+            [ring.middleware.cors :refer [wrap-cors]]
             [ring.adapter.jetty :as j])
   (:gen-class))
 
@@ -47,9 +48,10 @@
       (when (s/valid? :app/task-event event) (send-to-store event)))
     {:status 201}))
 
-(defn tasks-snapshot-from [events-from-store]
+(defn tasks-snapshot-from
   "Returns a snapshot of tasks from the history of task events. Only responds
    when the snapshot was created successfully, otherwise returns an error."
+  [events-from-store]
   (fn [_]
     (try
       {:status 200 :body (reduce apply-event [] (events-from-store))}
@@ -65,21 +67,21 @@
   [event-store]
   (let [{send-to-store :send stored-events :events} event-store]
     (r/ring-handler
-      (r/router
-        [["/tasks/added"
-          {:post       (handle-task-event "task-added" send-to-store)
-           :parameters {:body {:uri :task/uri :title :task/title}}}]
-         ["/tasks/completed"
-          {:post       (handle-task-event "task-completed" send-to-store)
-           :parameters {:body {:uri :task/uri :title :task/title}}}]
-         ["/tasks" {:get (tasks-snapshot-from stored-events)}]]
-        {:data
-         {:coercion   reitit.coercion.spec/coercion
-          :middleware [mw/wrap-format
-                       rrc/coerce-exceptions-middleware
-                       rrc/coerce-request-middleware
-                       rrc/coerce-response-middleware]}})
-      (r/create-default-handler))))
+     (r/router
+      [["/tasks/added"
+        {:post       (handle-task-event "task-added" send-to-store)
+         :parameters {:body {:uri :task/uri :title :task/title}}}]
+       ["/tasks/completed"
+        {:post       (handle-task-event "task-completed" send-to-store)
+         :parameters {:body {:uri :task/uri :title :task/title}}}]
+       ["/tasks" {:get (tasks-snapshot-from stored-events)}]]
+      {:data
+       {:coercion   reitit.coercion.spec/coercion
+        :middleware [mw/wrap-format
+                     rrc/coerce-exceptions-middleware
+                     rrc/coerce-request-middleware
+                     rrc/coerce-response-middleware]}})
+     (r/create-default-handler))))
 
 (defn in-memory-event-store []
   (let [events (atom [])]
@@ -88,4 +90,10 @@
                  (swap! events conj event)))
      :events (fn [] @events)}))
 
-(defn -main [& args] (j/run-jetty (app (in-memory-event-store)) {:port 3000}))
+(defn -main [& args]
+  (j/run-jetty
+   (-> (app (in-memory-event-store))
+       (wrap-cors :access-control-allow-credentials "true"
+                  :access-control-allow-origin [#".*"]
+                  :access-control-allow-methods [:get :post]))
+   {:port 3000}))
